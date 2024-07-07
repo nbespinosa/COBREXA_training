@@ -1,0 +1,137 @@
+#Ex 1
+#Hacer una grafica donde en el eje x este el maximo de glucosa que se le permite 
+#consumir a la celula y en la y el maximo de biomasa que estara dado esa glucosa
+
+
+using COBREXA
+
+sm = load_model(StandardModel, "e_coli_core.json")
+
+sm.reactions["EX_glc__D_e"].ub
+sm.reactions["EX_glc__D_e"].lb
+
+lb_list = [-10.0, -9.0, -8.0, -7.0, -6.0, -5.0, -4.0, -3.0, -2.0, -1.0]
+biomass_list = []
+
+for i in lb_list
+restricted_flux = flux_balance_analysis_dict(
+    sm,
+    GLPK.Optimizer,
+    modifications = [change_constraint("EX_glc__D_e", lb = i)],
+);
+
+push!(biomass_list, restricted_flux["BIOMASS_Ecoli_core_w_GAM"])
+end
+return biomass_list
+
+plot(lb_list, biomass_list,
+    xlabel = "Límite inferior de glucosa",
+    ylabel = "Flujo de biomasa",
+    title = "Efecto del límite inferior de glucosa en el flujo de biomasa"
+)
+
+#Ex 2
+#i. cierra la glucosa (lb = 0.0)
+# ii. haz ese mismo gráfico para cada aminoácido
+# ii.a. O sea, cada curva es la dependencia entre la biomasa y el límite de un aminoácido dado que no hay más fuentes de carbono disponibles...
+# iii. Encontrar a qué aminoácido (aminoacidos) la red es más sensible...
+
+using COBREXA
+
+sm = load_model(StandardModel, "e_coli_core.json")
+
+reaction_names = keys(sm.reactions)
+
+id_reactions = filter(id -> startswith(id, "E"), reaction_names)
+id_reactions = filter(id -> occursin("EX", id) && occursin("L", id), reaction_names)
+#metabolites_reactions = filter(id -> occursin("L", id), metabolites(sm))
+
+aa_ub_lb = Dict()  
+
+for reaction in id_reactions
+    aa_ub_lb[reaction] = (sm.reactions[reaction].ub, sm.reactions[reaction].lb)
+end
+return aa_ub_lb   #just for practicing dict 
+
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+#with arrays
+
+biomass_list_glu = []
+biomass_list_gln = []
+
+reactions = ["EX_glu__L_e", "EX_gln__L_e"]
+for reaction in reactions
+    for i in -100:-1
+        restricted_flux = flux_balance_analysis_dict(
+            sm,
+            GLPK.Optimizer,
+            modifications = [
+            change_constraint("EX_glc__D_e", lb = 0.0, ub = 0.0),
+            change_constraint(reaction, lb = i),
+            ],
+        );
+        
+    if reaction == "EX_glu__L_e"
+        push!(biomass_list_glu, restricted_flux["BIOMASS_Ecoli_core_w_GAM"])
+    else
+        push!(biomass_list_gln, restricted_flux["BIOMASS_Ecoli_core_w_GAM"])
+    end
+    end
+end
+return biomass_list_glu, biomass_list_gln
+
+#whith dict
+
+biomass_flux = Dict()
+reactions = ["EX_glu__L_e", "EX_gln__L_e"]
+biomass_list = []
+
+for reaction in reactions
+    for i in -100:-1
+        restricted_flux = flux_balance_analysis_dict(
+            sm,
+            GLPK.Optimizer,
+            modifications = [
+            change_constraint("EX_glc__D_e", lb = 0.0, ub = 0.0),
+            change_constraint(reaction, lb = i),
+            ],
+        );
+        push!(biomass_list, restricted_flux["BIOMASS_Ecoli_core_w_GAM"])
+    end
+    biomass_flux[reaction] = biomass_list
+end
+return biomass_flux
+
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+#Graphs
+
+using Plots
+
+x = -100:-1
+y1 = biomass_list_glu
+y2 = biomass_list_gln
+
+plot(x, y1, label="biomass_glu", title="glu Vs. gln", xlabel = "lb_values", ylabel = "biomass_flux")
+plot!(x, y2, label="biomass_gln")
+
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+#Encontrar a qué aminoácido (aminoacidos) la red es más sensible
+#Para responder esta pregunta diria q la red es mas sensible para aquel aa con cuyos valores de lb se obtengan mayores biomass_flux_values
+#Pero como este año di bioestadistica... aprendi que mientras mayor sea el coeficiente de correlacion entre dos variables significa q la variable 
+#dependiente es mas sensible ante los valors de la independiente. Yo no tengo Statistica, por lo que le pregunte a una IA como calcular los 
+#coeficientes de correlacion en Julia :)
+
+using Statistics
+
+correlation_glu = cor(y1, x)
+correlation_gln = cor(y2, x)
+
+if correlation_glu > correlation_gln
+    println("La red es más sensible a glu")
+elseif correlation_glu == correlation_gln
+    println("La red es igual de sensible a glu y a gln")
+else
+    println("La red es más sensible a gln")
+end
+
+#Los coeficientes dan iguales :(
